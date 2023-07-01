@@ -4,7 +4,7 @@
 //
 //  Created by the EPANET-RTX Development Team
 //  See README.md and license.txt for more information
-//  
+//
 
 #include <cstdlib>
 #include <cmath>
@@ -37,15 +37,15 @@ EpanetModel::~EpanetModel() {
 }
 
 EpanetModel::EpanetModel(const EpanetModel& o) {
-  
+
   cout << "copy ctor : EpanetModel" << endl;
-  
+
   this->useEpanetFile(o._modelFile);
   this->createRtxWrappers();
-  
+
 }
 
-EN_Project* EpanetModel::epanetModelPointer() {
+EN_Project EpanetModel::epanetModelPointer() {
   return _enModel;
 }
 
@@ -62,15 +62,15 @@ EpanetModel::EpanetModel(const std::string& filename) {
 
 #pragma mark - Loading
 
-void EpanetModel::useEpanetModel(EN_Project *model, string path) {
+void EpanetModel::useEpanetModel(EN_Project model, string path) {
   Units volumeUnits(0);
   this->_enModel = model;
   _modelFile = path;
-  
+
   // get units from epanet
   int flowUnitType = 0;
   bool isSI = false;
-  
+
   int qualCode, traceNode;
   char chemName[56], chemUnits[56];
   EN_API_CHECK( EN_getqualinfo(_enModel, &qualCode, chemName, chemUnits, &traceNode), "EN_getqualinfo" );
@@ -121,75 +121,75 @@ void EpanetModel::useEpanetModel(EN_Project *model, string path) {
     default:
       break;
   }
-  
+
   if (isSI) {
     setHeadUnits(RTX_METER);
     setPressureUnits(RTX_KILOPASCAL);
     volumeUnits = RTX_CUBIC_METER;
-    
+
   }
   else {
     setHeadUnits(RTX_FOOT);
     setPressureUnits(RTX_PSI);
     volumeUnits = RTX_CUBIC_FOOT;
   }
-  
+
   this->setVolumeUnits(volumeUnits);
-  
+
   // what units are quality in? who knows!
   //this->setQualityUnits(RTX_MICROSIEMENS_PER_CM);
   //EN_API_CHECK(EN_setqualtype(_enModel, CHEM, (char*)"rtxConductivity", (char*)"us/cm", (char*)""), "EN_setqualtype");
-    
+
   // get simulation parameters
   {
     long enTimeStep;
     EN_API_CHECK(EN_gettimeparam(_enModel, EN_HYDSTEP, &enTimeStep), "EN_gettimeparam EN_HYDSTEP");
     this->setHydraulicTimeStep((int)enTimeStep);
   }
-  
+
   {
     long reportStep;
     EN_API_CHECK(EN_gettimeparam(_enModel, EN_REPORTSTEP, &reportStep), "EN_gettimeparam EN_REPORTSTEP");
     this->setReportTimeStep((int)reportStep);
   }
-  
+
   int nodeCount, tankCount, linkCount;
   char enName[RTX_MAX_CHAR_STRING];
-    
+
   EN_API_CHECK( EN_getcount(_enModel, EN_NODECOUNT, &nodeCount), "EN_getcount EN_NODECOUNT" );
   EN_API_CHECK( EN_getcount(_enModel, EN_TANKCOUNT, &tankCount), "EN_getcount EN_TANKCOUNT" );
   EN_API_CHECK( EN_getcount(_enModel, EN_LINKCOUNT, &linkCount), "EN_getcount EN_LINKCOUNT" );
-  
+
   // store the original number of simple controls, since we'll be adding new ones
   int controlCount;
   EN_API_CHECK( EN_getcount(_enModel, EN_CONTROLCOUNT, &controlCount), "EN_getcount EN_CONTROLCOUNT" );
   _controlCount = controlCount;
-  
+
   // create lookup maps for name->index
   for (int iNode=1; iNode <= nodeCount; iNode++) {
     EN_API_CHECK( EN_getnodeid(_enModel, iNode, enName), "EN_getnodeid" );
     // and keep track of the epanet-toolkit index of this element
     _nodeIndex[string(enName)] = iNode;
   }
-  
+
   for (int iLink = 1; iLink <= linkCount; iLink++) {
     EN_API_CHECK(EN_getlinkid(_enModel, iLink, enName), "EN_getlinkid");
     // keep track of this element index
     _linkIndex[string(enName)] = iLink;
   }
-  
+
   // get the valve types
   for(Valve::_sp v : this->valves()) {
     int enIdx = _linkIndex[v->name()];
     EN_LinkType type = EN_PIPE;
-    EN_getlinktype(_enModel, enIdx, &type);
+    EN_getlinktype(_enModel, enIdx, (int*)&type);
     if (type == EN_PIPE) {
       // should not happen
       continue;
     }
     v->valveType = (int)type;
   }
-  
+
   // consistency checking (should add more)
   for(Node::_sp n : this->nodes()) {
     double elev;
@@ -201,7 +201,7 @@ void EpanetModel::useEpanetModel(EN_Project *model, string path) {
       throw(badElevationErr);
     }
   }
-  
+
   cout << "copying comments" << endl;
   // copy my comments into the model
   for(Node::_sp n : this->nodes()) {
@@ -210,26 +210,26 @@ void EpanetModel::useEpanetModel(EN_Project *model, string path) {
   for(Link::_sp l : this->links()) {
     this->setComment(l, l->userDescription());
   }
-  
+
 }
 
 void EpanetModel::useEpanetFile(const std::string& filename) {
-  EN_Project *model;
-  
+  EN_Project model;
+
   try {
     // set up temp path for report file so EPANET does not mess with stdout buffer
     boost::filesystem::path rptPath = boost::filesystem::temp_directory_path();
     rptPath /= "en_report.txt";
-    
-    EN_API_CHECK( EN_open((char*)filename.c_str(), &model, (char*)rptPath.c_str(), (char*)""), "EN_open" );
-    
+
+    EN_API_CHECK( EN_open(model, (char*)filename.c_str(), (char*)rptPath.c_str(), (char*)""), "EN_open" );
+
   } catch (const std::string& errStr) {
     cerr << "model not formatted correctly. " << errStr << endl;
     throw "model not formatted correctly. " + errStr;
   }
-  
+
   this->useEpanetModel(model, filename);
-  
+
 }
 
 void EpanetModel::initEngine() {
@@ -260,14 +260,14 @@ void EpanetModel::closeEngine() {
     }
     _enOpened = false;
   }
-  
+
 }
 
 
 void EpanetModel::createRtxWrappers() {
-  
+
   int curveCount, nodeCount, tankCount, linkCount;
-  
+
   try {
     EN_API_CHECK( EN_getcount(_enModel, EN_CURVECOUNT, &curveCount), "EN_getcount EN_CURVECOUNT");
     EN_API_CHECK( EN_getcount(_enModel, EN_NODECOUNT, &nodeCount), "EN_getcount EN_NODECOUNT" );
@@ -276,39 +276,39 @@ void EpanetModel::createRtxWrappers() {
   } catch (...) {
     throw "Could not create wrappers";
   }
-  
+
   map<int,Curve::_sp> namedCurves;
-  
+
   for (int iCurve = 1; iCurve <= curveCount; ++iCurve) {
     double *xVals, *yVals;
     int nPoints;
     char buf[1024];
-    int err = EN_getcurve (_enModel, iCurve, buf, &nPoints, &xVals, &yVals);
-    
+    int err = EN_getcurve (_enModel, iCurve, buf, &nPoints, xVals, yVals);
+
     if (err) {
       throw("could not find curve " + to_string(iCurve));
-    }  
-    
+    }
+
     map<double,double> curveData;
     for (int iPoint = 0; iPoint < nPoints; ++iPoint) {
       curveData[xVals[iPoint]] = yVals[iPoint];
     }
-    
+
     Curve::_sp newCurve( new Curve );
     newCurve->curveData = curveData;
     newCurve->inputUnits = RTX_DIMENSIONLESS;
     newCurve->outputUnits = RTX_DIMENSIONLESS;
     newCurve->name = string(buf);
-    
+
     this->addCurve(newCurve);
     namedCurves[iCurve] = newCurve;
-    
+
     free(xVals);
     free(yVals);
   }
-  
-  
-  
+
+
+
   // create nodes
   for (int iNode=1; iNode <= nodeCount; iNode++) {
     char enName[RTX_MAX_CHAR_STRING];
@@ -319,41 +319,41 @@ void EpanetModel::createRtxWrappers() {
     Reservoir::_sp newReservoir;
     Tank::_sp newTank;
     char enComment[MAXMSG];
-    
+
     // get relevant info from EPANET toolkit
     EN_API_CHECK( EN_getnodeid(_enModel, iNode, enName), "EN_getnodeid" );
     EN_API_CHECK( EN_getnodevalue(_enModel, iNode, EN_ELEVATION, &z), "EN_getnodevalue EN_ELEVATION");
-    EN_API_CHECK( EN_getnodetype(_enModel, iNode, &nodeType), "EN_getnodetype");
+    EN_API_CHECK( EN_getnodetype(_enModel, iNode, (int*)&nodeType), "EN_getnodetype");
     EN_API_CHECK( EN_getcoord(_enModel, iNode, &x, &y), "EN_getcoord");
-    EN_API_CHECK( EN_getnodecomment(_enModel, iNode, enComment), "EN_getnodecomment");
-    
+    EN_API_CHECK( EN_getcomment(_enModel, EN_NODE, iNode, enComment), "EN_getcomment");
+
     nodeName = string(enName);
     comment = string(enComment);
     double minLevel = 0, maxLevel = 0;
-    
+
     switch (nodeType) {
       case EN_TANK:
       {
         newTank.reset( new Tank(nodeName) );
         // get tank geometry from epanet and pass it along
         // todo -- geometry
-        
+
         addTank(newTank);
-        
+
         EN_API_CHECK(EN_getnodevalue(_enModel, iNode, EN_MAXLEVEL, &maxLevel), "EN_getnodevalue(EN_MAXLEVEL)");
         EN_API_CHECK(EN_getnodevalue(_enModel, iNode, EN_MINLEVEL, &minLevel), "EN_getnodevalue(EN_MINLEVEL)");
         newTank->setMinMaxLevel(minLevel, maxLevel);
-        
+
         newTank->level()->setUnits(headUnits());
         newTank->flowCalc()->setUnits(flowUnits());
         newTank->volumeCalc()->setUnits(volumeUnits());
         newTank->flow()->setUnits(flowUnits());
         newTank->volume()->setUnits(volumeUnits());
-        
+
         Curve::_sp volumeCurve;
         double volumeCurveIndex;
         EN_API_CHECK(EN_getnodevalue(_enModel, iNode, EN_VOLCURVE, &volumeCurveIndex), "EN_getnodevalue EN_VOLCURVE");
-        
+
         if (volumeCurveIndex > 0) {
           // curved tank
           volumeCurve = namedCurves[volumeCurveIndex];
@@ -362,28 +362,28 @@ void EpanetModel::createRtxWrappers() {
           // it's a cylindrical tank - invent a curve
           double minVolume, maxVolume;
           double minLevel, maxLevel;
-          
+
           EN_API_CHECK(EN_getnodevalue(_enModel, iNode, EN_MAXLEVEL, &maxLevel), "EN_MAXLEVEL");
           EN_API_CHECK(EN_getnodevalue(_enModel, iNode, EN_MINLEVEL, &minLevel), "EN_MINLEVEL");
           EN_API_CHECK(EN_getnodevalue(_enModel, iNode, EN_MINVOLUME, &minVolume), "EN_MINVOLUME");
           EN_API_CHECK(EN_getnodevalue(_enModel, iNode, EN_MAXVOLUME, &maxVolume), "EN_MAXVOLUME");
-          
+
           volumeCurve.reset( new Curve );
           volumeCurve->curveData[minLevel] = minVolume;
           volumeCurve->curveData[maxLevel] = maxVolume;
-          
+
           stringstream ss;
           ss << "Tank " << newTank->name() << " Cylindrical Curve";
           volumeCurve->name = ss.str();
           this->addCurve(volumeCurve); // unnamed curve: add cylindrical curve to list
         }
-        
+
         volumeCurve->inputUnits = this->headUnits();
         volumeCurve->outputUnits = this->volumeUnits();
-        
+
         // set tank geometry
         newTank->setGeometry(volumeCurve);
-        
+
         newJunction = newTank;
         break;
       }
@@ -399,23 +399,23 @@ void EpanetModel::createRtxWrappers() {
       default:
         throw "Node Type Unknown";
     } // switch nodeType
-    
+
     // set units for new element
     newJunction->head()->setUnits(headUnits());
     newJunction->pressure()->setUnits(pressureUnits());
     newJunction->demand()->setUnits(flowUnits());
     newJunction->quality()->setUnits(qualityUnits());
-    
+
     // newJunction is the generic (base-class) pointer to the specific object,
     // so we can use base-class methods to set some parameters.
     newJunction->setElevation(z);
     newJunction->setCoordinates(Node::location_t(x, y));
-    
+
     // Initial quality specified in input data
     double initQual;
     EN_API_CHECK(EN_getnodevalue(_enModel, iNode, EN_INITQUAL, &initQual), "EN_INITQUAL");
     newJunction->state_quality = initQual;
-    
+
     // Base demand is sum of all demand categories, accounting for patterns
     double demand = 0, categoryDemand = 0, avgPatternValue = 0;
     int numDemands = 0, patternIdx = 0;
@@ -431,10 +431,10 @@ void EpanetModel::createRtxWrappers() {
     }
     newJunction->setBaseDemand(demand);
     newJunction->setUserDescription(comment);
-    
-    
+
+
   } // for iNode
-  
+
   // create links
   for (int iLink = 1; iLink <= linkCount; iLink++) {
     char enLinkName[RTX_MAX_CHAR_STRING+1], enFromName[RTX_MAX_CHAR_STRING+1], enToName[RTX_MAX_CHAR_STRING+1], enComment[RTX_MAX_CHAR_STRING+1];
@@ -446,10 +446,10 @@ void EpanetModel::createRtxWrappers() {
     Pipe::_sp newPipe;
     Pump::_sp newPump;
     Valve::_sp newValve;
-    
+
     // a bunch of epanet api calls to get properties from the link
     EN_API_CHECK(EN_getlinkid(_enModel, iLink, enLinkName), "EN_getlinkid");
-    EN_API_CHECK(EN_getlinktype(_enModel, iLink, &linkType), "EN_getlinktype");
+    EN_API_CHECK(EN_getlinktype(_enModel, iLink, (int*)&linkType), "EN_getlinktype");
     EN_API_CHECK(EN_getlinknodes(_enModel, iLink, &enFrom, &enTo), "EN_getlinknodes");
     EN_API_CHECK(EN_getnodeid(_enModel, enFrom, enFromName), "EN_getnodeid - enFromName");
     EN_API_CHECK(EN_getnodeid(_enModel, enTo, enToName), "EN_getnodeid - enToName");
@@ -459,20 +459,20 @@ void EpanetModel::createRtxWrappers() {
     EN_API_CHECK(EN_getlinkvalue(_enModel, iLink, EN_ROUGHNESS, &rough), "EN_getlinkvalue EN_ROUGHNESS");
     EN_API_CHECK(EN_getlinkvalue(_enModel, iLink, EN_MINORLOSS, &mloss), "EN_getlinkvalue EN_MINORLOSS");
     EN_API_CHECK(EN_getlinkvalue(_enModel, iLink, EN_INITSETTING, &setting), "EN_getlinkvalue EN_INITSETTING");
-    EN_API_CHECK(EN_getlinkcomment(_enModel, iLink, enComment), "EN_getlinkcomment");
-    
+    EN_API_CHECK(EN_getcomment(_enModel, EN_LINK, iLink, enComment), "EN_getcomment");
+
     linkName = string(enLinkName);
     comment = string(enComment);
     // get node pointers
     startNode = nodeWithName(string(enFromName));
     endNode = nodeWithName(string(enToName));
-    
+
     if (! (startNode && endNode) ) {
       std::cerr << "could not find nodes for link " << linkName << std::endl;
       throw "nodes not found";
     }
-    
-    
+
+
     // create the new specific type and add it.
     // newPipe becomes the generic (base-class) pointer in all cases.
     switch (linkType) {
@@ -486,11 +486,11 @@ void EpanetModel::createRtxWrappers() {
         newPump->setNodes(startNode, endNode);
         newPipe = newPump;
         addPump(newPump);
-        
+
       {
         // has curve?
-        int err = EN_getlinkvalue(_enModel, iLink, EN_HEADCURVE, &curveIdx);
-        if (err == EN_OK) {
+        int err = EN_getlinkvalue(_enModel, iLink, EN_PUMP_HCURVE, &curveIdx);
+        if (err == 0) {
           Curve::_sp pumpCurve = namedCurves[(int)curveIdx];
           if (pumpCurve) {
             pumpCurve->inputUnits = this->flowUnits();
@@ -498,8 +498,8 @@ void EpanetModel::createRtxWrappers() {
             newPump->setHeadCurve(pumpCurve);
           }
         }
-        err = EN_getlinkvalue(_enModel, iLink, EN_EFFICIENCYCURVE, &curveIdx);
-        if (err == EN_OK) {
+        err = EN_getlinkvalue(_enModel, iLink, EN_PUMP_ECURVE, &curveIdx);
+        if (err == 0) {
           Curve::_sp effCurve = namedCurves[(int)curveIdx];
           if (effCurve) {
             effCurve->inputUnits = this->flowUnits();
@@ -527,41 +527,41 @@ void EpanetModel::createRtxWrappers() {
         std::cerr << "could not find pipe type" << std::endl;
         break;
     } // switch linkType
-    
-    
+
+
     // now that the pipe is created, set some basic properties.
     newPipe->setDiameter(diameter);
     newPipe->setLength(length);
     newPipe->setRoughness(rough);
     newPipe->setMinorLoss(mloss);
-    
+
     if (status == 0) {
       newPipe->setFixedStatus(Pipe::CLOSED);
     }
-    
+
     newPipe->flow()->setUnits(flowUnits());
     newPipe->setUserDescription(comment);
-    
-    
+
+
   } // for iLink
-  
+
 }
 
 void EpanetModel::overrideControls() {
   // set up counting variables for creating model elements.
   int nodeCount, tankCount;
-  
+
   try {
     EN_API_CHECK( EN_getcount(_enModel, EN_NODECOUNT, &nodeCount), "EN_getcount EN_NODECOUNT" );
     EN_API_CHECK( EN_getcount(_enModel, EN_TANKCOUNT, &tankCount), "EN_getcount EN_TANKCOUNT" );
-    
+
     // eliminate all patterns and control rules
-    
+
     int nPatterns;
     double sourcePat;
     double zeroPattern[2];
     zeroPattern[0] = 0;
-    
+
     // clear all patterns, set to zero.  we do this to get rid of extra demand patterns set in [DEMANDS],
     // since there's no other way to get to them using the toolkit.
     EN_API_CHECK( EN_getcount(_enModel, EN_PATCOUNT, &nPatterns), "EN_getcount(EN_PATCOUNT)" );
@@ -574,7 +574,7 @@ void EpanetModel::overrideControls() {
       EN_API_CHECK( EN_setnodevalue(_enModel, iNode, EN_BASEDEMAND, 0. ), "EN_setnodevalue(EN_BASEDEMAND)" );	// set base demand to zero
       // look for a quality source and nullify its existance
       int errCode = EN_getnodevalue(_enModel, iNode, EN_SOURCEPAT, &sourcePat);
-      if (errCode != EN_ERR_UNDEF_SOURCE) {
+      if (errCode != 240) {
         EN_API_CHECK( EN_setnodevalue(_enModel, iNode, EN_SOURCETYPE, EN_CONCEN), "EN_setnodevalue(EN_SOURCETYPE)" );
         EN_API_CHECK( EN_setnodevalue(_enModel, iNode, EN_SOURCEQUAL, 0.), "EN_setnodevalue(EN_SOURCEQUAL)" );
         EN_API_CHECK( EN_setnodevalue(_enModel, iNode, EN_SOURCEPAT, 0.), "EN_setnodevalue(EN_SOURCEPAT)" );
@@ -582,7 +582,7 @@ void EpanetModel::overrideControls() {
     }
     // set the global demand multiplier is unity as well.
     EN_setoption(_enModel, EN_DEMANDMULT, 1.);
-    
+
     // disregard controls and rules.
     this->disableControls();
   }
@@ -720,20 +720,20 @@ void EpanetModel::setPipeStatus(const string& pipe, Pipe::status_t status) {
 
 void EpanetModel::setPipeStatusControl(const std::string& pipe, Pipe::status_t status, enableControl_t enableStatus) {
   int linkIndex = _linkIndex[pipe];
-  int enEnableStatus = (enableStatus == enable) ? EN_ENABLE : EN_DISABLE;
+  int enEnableStatus = (enableStatus == enable) ? EN_TRUE : EN_FALSE;
 
   if (_statusControlIndex.count(pipe) == 0) {
     // if this element doesn't have a control, add one
     int cindex;
-    EN_API_CHECK(EN_addstatuscontrol(_enModel, EN_TIMER, linkIndex, (EN_API_FLOAT_TYPE)status, 0, (EN_API_FLOAT_TYPE)0.0, &cindex), "EN_addcontrol");
+    EN_API_CHECK(EN_addcontrol(_enModel, EN_TIMER, linkIndex, (EN_API_FLOAT_TYPE)status, 0, (EN_API_FLOAT_TYPE)0.0, &cindex), "EN_addcontrol");
     _statusControlIndex[pipe] = cindex;
-    EN_API_CHECK(EN_setControlEnabled(_enModel, cindex, enEnableStatus), "EN_setControlEnabled");
+    EN_API_CHECK(EN_setcontrolenabled(_enModel, cindex, enEnableStatus), "EN_setcontrolenabled");
   }
   else {
     // set the control
     int cindex = _statusControlIndex[pipe];
-    EN_API_CHECK(EN_setstatuscontrol(_enModel, cindex, EN_TIMER, linkIndex, (EN_API_FLOAT_TYPE)status, 0, (EN_API_FLOAT_TYPE)0.0), "EN_setcontrol");
-    EN_API_CHECK(EN_setControlEnabled(_enModel, cindex, enEnableStatus), "EN_setControlEnabled");
+    EN_API_CHECK(EN_setcontrol(_enModel, cindex, EN_TIMER, linkIndex, (EN_API_FLOAT_TYPE)status, 0, (EN_API_FLOAT_TYPE)0.0), "EN_setcontrol");
+    EN_API_CHECK(EN_setcontrolenabled(_enModel, cindex, enEnableStatus), "EN_setcontrolenabled");
   }
 }
 
@@ -753,27 +753,27 @@ void EpanetModel::setPumpSetting(const string& pump, double setting) {
 
 void EpanetModel::setPumpSettingControl(const string& pump, double setting, enableControl_t enableStatus) {
   int linkIndex = _linkIndex[pump];
-  int enEnableStatus = (enableStatus == enable) ? EN_ENABLE : EN_DISABLE;
+  int enEnableStatus = (enableStatus == enable) ? EN_TRUE : EN_FALSE;
 
   if (_settingControlIndex.count(pump) == 0) {
     // if this element doesn't have a control, add one
     int cindex;
-    EN_API_CHECK(EN_addcontrol(_enModel, EN_TIMER, linkIndex, (EN_API_FLOAT_TYPE)setting, 0, (EN_API_FLOAT_TYPE)0.0, &cindex), "EN_addcontrol");
+    EN_API_CHECK(EN_addcontrol(_enModel, EN_TIMER, linkIndex, setting, 0, 0.0, &cindex), "EN_addcontrol");
     _settingControlIndex[pump] = cindex;
-    EN_API_CHECK(EN_setControlEnabled(_enModel, cindex, enEnableStatus), "EN_setControlEnabled");
+    EN_API_CHECK(EN_setcontrolenabled(_enModel, cindex, enEnableStatus), "EN_setcontrolenabled");
   }
   else {
     // set the control
     int cindex = _settingControlIndex[pump];
     try {
-      EN_API_CHECK(EN_setcontrol(_enModel, cindex, EN_TIMER, linkIndex, (EN_API_FLOAT_TYPE)setting, 0, (EN_API_FLOAT_TYPE)0.0), "EN_setcontrol");
-      EN_API_CHECK(EN_setControlEnabled(_enModel, cindex, enEnableStatus), "EN_setControlEnabled");
+      EN_API_CHECK(EN_setcontrol(_enModel, cindex, EN_TIMER, linkIndex, setting, 0, 0.0), "EN_setcontrol");
+      EN_API_CHECK(EN_setcontrolenabled(_enModel, cindex, enEnableStatus), "EN_setcontrolenabled");
     } catch (const std::string& errorMessage) {
       stringstream ss;
       ss << std::string(errorMessage) << EOL;
       this->logLine(ss.str());
     }
-    
+
   }
 }
 
@@ -807,7 +807,7 @@ double EpanetModel::tankInletQuality(const string& tank) {
   int nodeIndex = _nodeIndex[tank];
   double value = 0;
   int ok = EN_getnodevalue(_enModel, nodeIndex, EN_INLETQUALITY, &value);
-  if (ok == EN_ERR_ILLEGAL_NUMERIC_VALUE) {
+  if (ok == 202) {
     // this is a special edge-edge case: volume into the tank over this step is <= 0
     return NAN;
   }
@@ -849,25 +849,25 @@ double EpanetModel::pipeEnergy(const string &name) {
 #pragma mark - Sim options
 void EpanetModel::enableControls() {
   for (int i = 1; i <= _controlCount; ++i) {
-    EN_setControlEnabled(_enModel, i, EN_ENABLE);
+    EN_setcontrolenabled(_enModel, i, EN_TRUE);
   }
-  
+
   int nC;
   EN_getcount(_enModel, EN_RULECOUNT, &nC);
   for (int i = 1; i <= nC; ++i) {
-    EN_setRuleEnabled(_enModel, i, EN_ENABLE);
+    EN_setruleenabled(_enModel, i, EN_TRUE);
   }
 }
 
 void EpanetModel::disableControls() {
   for (int i = 1; i <= _controlCount; ++i) {
-    EN_setControlEnabled(_enModel, i, EN_DISABLE);
+    EN_setcontrolenabled(_enModel, i, EN_FALSE);
   }
-  
+
   int nC;
   EN_getcount(_enModel, EN_RULECOUNT, &nC);
   for (int i = 1; i <= nC; ++i) {
-    EN_setRuleEnabled(_enModel, i, EN_DISABLE);
+    EN_setruleenabled(_enModel, i, EN_FALSE);
   }
 }
 
@@ -880,7 +880,7 @@ bool EpanetModel::solveSimulation(time_t time) {
   bool success = true;
   long timestep;
   int errorCode;
-  
+
   // set the current epanet-time to zero, since we override epanet-time.
   setCurrentSimulationTime( time );
   EN_API_CHECK(EN_settimeparam(_enModel, EN_HTIME, 0), "EN_settimeparam(EN_HTIME)");
@@ -889,7 +889,7 @@ bool EpanetModel::solveSimulation(time_t time) {
   errorCode = EN_runH(_enModel, &timestep);
   // check for success
   success = this->_didConverge(time, errorCode);
-  
+
   if (errorCode > 0) {
     char errorMsg[256];
     EN_geterror(errorCode, errorMsg, 255);
@@ -898,7 +898,7 @@ bool EpanetModel::solveSimulation(time_t time) {
     ss << std::string(errorMsg) << " :: " << asctime(timeinfo);
     this->logLine(ss.str());
   }
-  
+
   if (errorCode == 110) {
     // ill conditioning can be helped by resetting some things
     this->applyInitialTankLevels();
@@ -913,12 +913,12 @@ bool EpanetModel::solveSimulation(time_t time) {
       this->logLine(ss.str());
     }
   }
-  
+
   // how to deal with lack of hydraulic convergence here - reset boundary/initial conditions?
   if (this->shouldRunWaterQuality()) {
     EN_API_CHECK(EN_runQ(_enModel, &timestep), "EN_runQ");
   }
-  
+
   return success;
 }
 
@@ -933,19 +933,21 @@ time_t EpanetModel::nextHydraulicStep(time_t time) {
   // so that the step length figurer-outerer works.
   int actualTimeStep = hydraulicTimeStep();
   this->setHydraulicTimeStep(actualTimeStep);
-  
+
   // get time to next hydraulic event
   EN_TimestepEvent eventType;
+  int eventT = 0;
   long duration = 0;
   int elementIndex = 0;
-  EN_API_CHECK(EN_timeToNextEvent(_enModel, &eventType, &duration, &elementIndex), "EN_timeToNextEvent");
+  EN_API_CHECK(EN_timetonextevent(_enModel, &eventT, &duration, &elementIndex), "EN_timetonextevent");
+  eventType = static_cast<EN_TimestepEvent>(eventT);
   nextTime += duration;
-  
+
   if (eventType == EN_STEP_TANKEVENT || eventType == EN_STEP_CONTROLEVENT) {
-    
+
     string elementTypeStr("");
     string elementDescStr("");
-    
+
     if (eventType == EN_STEP_TANKEVENT) {
       elementTypeStr = "Tank";
       char id[MAXID+1];
@@ -955,7 +957,7 @@ time_t EpanetModel::nextHydraulicStep(time_t time) {
     else {
       elementTypeStr = "Control";
       elementDescStr = "index " + to_string(elementIndex) + " :: ";
-      
+
       int controlType, linkIndex, nodeIndex;
       double setting, level;
       EN_getcontrol(_enModel, elementIndex, &controlType, &linkIndex, &setting, &nodeIndex, &level);
@@ -964,10 +966,10 @@ time_t EpanetModel::nextHydraulicStep(time_t time) {
       //#define EN_HILEVEL      1   /* See ControlType */
       //#define EN_TIMER        2   /* in TYPES.H.     */
       //#define EN_TIMEOFDAY    3
-      
+
       char linkName[1024];
       EN_getlinkid(_enModel, linkIndex, linkName);
-      
+
       string nodeOrTime("");
       if (nodeIndex == 0) {
         nodeOrTime = "Time";
@@ -977,7 +979,7 @@ time_t EpanetModel::nextHydraulicStep(time_t time) {
         EN_getnodeid(_enModel, nodeIndex, nodeId);
         nodeOrTime = string(nodeId);
       }
-      
+
       stringstream controlString;
       switch (controlType) {
         case 0:
@@ -997,14 +999,14 @@ time_t EpanetModel::nextHydraulicStep(time_t time) {
       }
 
       elementDescStr += controlString.str();
-      
+
     }
-    
+
     stringstream ss;
     ss << "INFO: Simulation step restricted to " << duration << " seconds by " << elementTypeStr << " :: " << elementDescStr;
     this->logLine(ss.str());
   }
-  
+
   return nextTime;
 }
 
@@ -1012,26 +1014,26 @@ time_t EpanetModel::nextHydraulicStep(time_t time) {
 void EpanetModel::stepSimulation(time_t time) {
   int step = (int)(time - this->currentSimulationTime());
   long qstep = step;
-  
+
   //std::cout << "set step to: " << step << std::endl;
-  
+
   long computedStep = 0;
-  
+
   int actualStep = this->hydraulicTimeStep();
   this->setHydraulicTimeStep(step);
   EN_API_CHECK( EN_nextH(_enModel, &computedStep), "EN_nextH()" );
-  
+
   if (this->shouldRunWaterQuality()) {
     EN_API_CHECK(EN_nextQ(_enModel, &qstep), "EN_nextQ");
   }
-  
+
   if (step != computedStep) {
     // it's an intermediate step
     stringstream ss;
     ss << "ERROR: Simulation step used for updating tank levels different than expected: set " << step << " and simulated " << computedStep;
     this->logLine(ss.str());
   }
-  
+
   this->setHydraulicTimeStep(actualStep);
   setCurrentSimulationTime( currentSimulationTime() + step );
 }
@@ -1051,7 +1053,7 @@ double EpanetModel::relativeError(time_t time) {
 bool EpanetModel::_didConverge(time_t time, int errorCode) {
   // return true if the simulation did converge
   EN_API_FLOAT_TYPE accuracy;
-  
+
   EN_API_CHECK( EN_getoption(_enModel, EN_ACCURACY, &accuracy), "EN_getoption");
   bool illcondition = errorCode == 101 || errorCode == 110; // 101 is memory issue, 110 is illconditioning
   bool unbalanced = relativeError(time) > accuracy;
@@ -1070,7 +1072,7 @@ void EpanetModel::setHydraulicTimeStep(int seconds) {
   EN_API_CHECK( EN_settimeparam(_enModel, EN_HYDSTEP, (long)seconds), "EN_settimeparam(EN_HYDSTEP)" );
   // base class method
   Model::setHydraulicTimeStep(seconds);
-  
+
 }
 
 void EpanetModel::setQualityTimeStep(int seconds) {
@@ -1093,21 +1095,21 @@ void EpanetModel::applyInitialQuality() {
     int iNode = _nodeIndex[junc->name()];
     EN_API_CHECK(EN_setnodevalue(_enModel, iNode, EN_INITQUAL, qual), "EN_setnodevalue - EN_INITQUAL");
   }
-  
+
   // Tanks
   for(Tank::_sp tank : this->tanks()) {
     double qual = tank->state_quality;
     int iNode = _nodeIndex[tank->name()];
     EN_API_CHECK(EN_setnodevalue(_enModel, iNode, EN_INITQUAL, qual), "EN_setnodevalue - EN_INITQUAL");
   }
-  
+
   // reservoirs
   for(auto r: this->reservoirs()) {
     double q = r->state_quality;
     int iNode = _nodeIndex[r->name()];
     EN_API_CHECK(EN_setnodevalue(_enModel, iNode, EN_INITQUAL, q), "EN_setnodevalue - EN_INITIALQUAL");
   }
-  
+
   EN_API_CHECK(EN_initQ(_enModel, EN_NOSAVE), "ENinitQ");
 }
 
@@ -1116,10 +1118,10 @@ void EpanetModel::applyInitialTankLevels() {
     DebugLog << "Could not apply initial tank conditions; engine not opened" << EOL;
     return;
   }
-  
+
   EN_API_CHECK(EN_closeH(_enModel), "EN_closeH");
   EN_API_CHECK(EN_openH(_enModel), "EN_openH");
-  
+
   // Tanks
   for(Tank::_sp tank : this->tanks()) {
     double level = tank->state_level;
@@ -1139,14 +1141,14 @@ void EpanetModel::applyInitialTankLevels() {
       EN_API_CHECK(EN_setnodevalue(_enModel, iNode, EN_TANKLEVEL, level), "EN_setnodevalue - EN_TANKLEVEL");
     }
   }
-  
+
   EN_API_CHECK(EN_initH(_enModel, 10), "ENinitH");
 }
 
 void EpanetModel::updateEngineWithElementProperties(Element::_sp e) {
-  
+
   //! update hydraulic engine representation with full list of properties from this element.
-  
+
   switch (e->type()) {
     case Element::TANK:
     {
@@ -1163,7 +1165,7 @@ void EpanetModel::updateEngineWithElementProperties(Element::_sp e) {
       this->setComment(j, j->userDescription());
     }
       break;
-      
+
     case Element::VALVE:
     case Element::PUMP:
     case Element::PIPE:
@@ -1172,22 +1174,22 @@ void EpanetModel::updateEngineWithElementProperties(Element::_sp e) {
       this->setLinkValue(EN_DIAMETER, p->name(), p->diameter());
       this->setLinkValue(EN_ROUGHNESS, p->name(), p->roughness());
       this->setLinkValue(EN_LENGTH, p->name(), p->length());
-      
+
       // if it is a valve/pump:
       //    if check valve, don't set status or setting
       //    if fixedStatus is closed, set the setting first
       //    if fixedStatus is open, set the setting last.
-      
+
       auto setSetting = [this](Valve::_sp v) {
         this->setLinkValue(EN_INITSETTING, v->name(), v->fixedSetting);
         this->setLinkValue(EN_SETTING, v->name(), v->fixedSetting);
       };
-      
+
       auto setStatus = [this](Valve::_sp v) {
         this->setLinkValue(EN_INITSTATUS, v->name(), v->fixedStatus());
         this->setLinkValue(EN_STATUS, v->name(), v->fixedStatus());
       };
-      
+
       Valve::_sp v = std::dynamic_pointer_cast<Valve>(p);
       if (v && v->valveType != EN_CVPIPE) {
         // if it's a valve... don't set anything on a check valve!
@@ -1200,7 +1202,7 @@ void EpanetModel::updateEngineWithElementProperties(Element::_sp e) {
           setSetting(v);
         }
       }
-      
+
       this->setComment(p, p->userDescription());
     }
       break;
@@ -1221,11 +1223,11 @@ void EpanetModel::cleanupModelAfterSimulation() {
   }
   _settingControlIndex.clear();
   _statusControlIndex.clear();
-  
+
   // TODO - revert base demands (and patterns!) back to their previous values
-  
+
   // TODO - other things: initial tank levels? Anything else that creates confusion with diffs?
-  
+
 }
 
 #pragma mark -
@@ -1258,14 +1260,14 @@ void EpanetModel::setLinkValue(int epanetCode, const string& link, double value)
 
 void EpanetModel::setComment(Element::_sp element, const std::string& comment)
 {
-  
+
   switch (element->type()) {
     case Element::JUNCTION:
     case Element::TANK:
     case Element::RESERVOIR:
     {
       int nodeIndex = _nodeIndex[element->name()];
-      EN_API_CHECK(EN_setnodecomment(_enModel, nodeIndex, comment.c_str()), "EN_setnodecomment");
+      EN_API_CHECK(EN_setcomment(_enModel, EN_NODE, nodeIndex, (char *)comment.c_str()), "EN_setcomment");
     }
       break;
     case Element::PIPE:
@@ -1273,13 +1275,13 @@ void EpanetModel::setComment(Element::_sp element, const std::string& comment)
     case Element::VALVE:
     {
       int linkIndex = _linkIndex[element->name()];
-      EN_API_CHECK(EN_setlinkcomment(_enModel, linkIndex, comment.c_str()), "EN_setlinkcomment");
+      EN_API_CHECK(EN_setcomment(_enModel, EN_LINK, linkIndex, (char *)comment.c_str()), "EN_setcomment");
     }
       break;
     default:
       break;
   }
-  
+
 }
 
 void EpanetModel::EN_API_CHECK(int errorCode, string externalFunction) {
@@ -1309,4 +1311,3 @@ int EpanetModel::enIndexForPipe(Pipe::_sp p) {
     return -1;
   }
 }
-
