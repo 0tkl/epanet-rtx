@@ -806,7 +806,9 @@ double EpanetModel::junctionQuality(const string &junction) {
 double EpanetModel::tankInletQuality(const string& tank) {
   int nodeIndex = _nodeIndex[tank];
   double value = 0;
-  int ok = EN_getnodevalue(_enModel, nodeIndex, EN_INLETQUALITY, &value);
+  // waiting upstream to add EN_INLETQUALITY;
+  // use a non-exist node property as a placeholder
+  int ok = EN_getnodevalue(_enModel, nodeIndex, 99, &value);
   if (ok == 202) {
     // this is a special edge-edge case: volume into the tank over this step is <= 0
     return NAN;
