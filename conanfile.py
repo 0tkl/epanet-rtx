@@ -43,14 +43,14 @@ class EpanetRtx(ConanFile):
     }
 
     def requirements(self):
-        self.requires("zlib/1.2.13")
-        self.requires("openssl/3.1.2")
+        self.requires("zlib/1.3")
+        self.requires("openssl/3.1.3")
         self.requires("oatpp/1.3.0")
         self.requires("oatpp-openssl/1.3.0")
         self.requires("boost/1.83.0")
-        self.requires("nlohmann_json/3.10.5")
-        self.requires("libcurl/7.80.0")
-        self.requires("sqlite3/3.43.1")
+        self.requires("nlohmann_json/3.11.2")
+        self.requires("libcurl/8.2.1")
+        self.requires("sqlite3/3.43.2")
         self.requires("sqlite_modern_cpp/3.2")
         self.requires("epanet/2.3")
 

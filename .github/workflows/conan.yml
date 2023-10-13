@@ -1,0 +1,96 @@
+name: Build in Conan
+
+on:
+  schedule:
+    - cron:  '12 3 4,14,24 * *'
+  push:
+    branches: [ updev ]
+    paths-ignore: 
+      - "doc"
+      - ".github/workflows/cmake.yml"
+      - ".gitignore"
+      - "README.md"
+      - "docs.html"
+      - "license.txt"
+  pull_request:
+    paths-ignore: 
+      - "doc"
+      - ".github/workflows/cmake.yml"
+      - ".gitignore"
+      - "README.md"
+      - "docs.html"
+      - "license.txt"
+  workflow_dispatch:
+
+env:
+  BUILD_TYPE: Release
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-13, ubuntu-latest] # windows-latest,
+        build-type: [Debug, Release]
+        include:
+          # - os: windows-latest
+          #   gen: "'Visual Studio 17 2022'"
+          #   arch: "-A x64"
+          - os: macos-13
+            gen: Xcode
+          - os: ubuntu-latest
+            gen: "'Ninja Multi-Config'"
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Install Conan (macOS)
+      if: matrix.os == 'macos-13'
+      run: |
+        pip install --upgrade pip
+        pip install conan
+
+    - name: Install Conan (Ubuntu)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends \
+        cmake ninja-build curl libcurl4-openssl-dev
+        pip3 install --upgrade pip
+        pip3 install conan
+
+    - name: Set up Conan profile
+      run: |
+        conan profile detect --force
+        conan profile show -pr default
+        echo "TOOLCHAIN_FILE=${{github.workspace}}/deps/conan_toolchain.cmake" >> $GITHUB_ENV
+  
+    - name: Restore cached dependencies
+      id: unix-cache
+      uses: actions/cache/restore@v3
+      with:
+        path: ~/.conan2/p/
+        key: ${{ matrix.os }}-${{matrix.build-type}}-dependencies
+
+    - name: Make Conan dependencies
+      run: |
+        conan export deps/local_export/sqlite_modern_cpp
+        conan export deps/local_export/epanet
+        conan install . --build=missing -s build_type=${{matrix.build-type}}
+    
+    - name: Save dependencies
+      uses: actions/cache/save@v3
+      if: steps.unix-cache.outputs.cache-hit != 'true'
+      with:
+        path: ~/.conan2/p/
+        key: ${{ matrix.os }}-${{matrix.build-type}}-dependencies
+      
+    - name: Build
+      run: |
+        conan build . --build=missing -s build_type=Release
+        conan export-pkg . -s build_type=Release
+    
+    - name: Test
+      run: ./build/Release/bin/rtx_test
